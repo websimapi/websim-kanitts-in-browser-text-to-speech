@@ -126,7 +126,7 @@ const initializeTTS = async () => {
         });
 
         // Load the speaker embedding extractor
-        embeddingExtractor = await pipeline('feature-extraction', 'Universal-NER/speaker-verification-M-CTC', {
+        embeddingExtractor = await pipeline('feature-extraction', 'Xenova/speecht5_speaker-encoder', {
             quantized: true,
         });
 

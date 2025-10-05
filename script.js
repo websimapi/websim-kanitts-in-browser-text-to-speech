@@ -101,7 +101,9 @@ const handleSpeak = async () => {
 
     try {
         const speakerId = voiceSelect.value;
-        const selectedSpeakerEmbedding = speaker_embeddings[speakerId].speaker_embedding;
+        const speakerEmbeddingArray = speaker_embeddings[speakerId].speaker_embedding;
+        // The library expects a Float32Array or a Tensor, not a standard array.
+        const selectedSpeakerEmbedding = new Float32Array(speakerEmbeddingArray);
 
         const out = await synthesizer(textInput.value, {
             speaker_embeddings: selectedSpeakerEmbedding,

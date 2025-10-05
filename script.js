@@ -126,7 +126,7 @@ const initializeTTS = async () => {
         });
 
         // Load the speaker embedding extractor
-        embeddingExtractor = await pipeline('feature-extraction', 'Xenova/speecht5_speaker-encoder', {
+        embeddingExtractor = await pipeline('audio-classification', 'Univeral-NER/speaker-verification-M-CTC', {
             quantized: true,
         });
 
@@ -230,10 +230,12 @@ const handleVoiceUpload = async (event) => {
 
         // Extract speaker embeddings
         const embeddings = await embeddingExtractor(audio.data, {
-            sampling_rate: audio.sampling_rate
+            sampling_rate: audio.sampling_rate,
         });
 
-        customSpeakerEmbedding = embeddings.data;
+        // The model returns a list of embeddings, we take the first one
+        // and its 'embedding' property which is the Float32Array
+        customSpeakerEmbedding = embeddings[0].embedding;
         
         setStatus('Custom voice loaded successfully. Press "Speak" to use it.');
         // Deselect any option in the dropdown to indicate custom voice is active

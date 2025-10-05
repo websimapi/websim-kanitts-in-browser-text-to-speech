@@ -1,7 +1,9 @@
-import { pipeline, env } from '@xenova/transformers';
+import { pipeline, env, RawAudio } from '@xenova/transformers';
 
 // Since we will download the model from the Hugging Face Hub, we can skip the local model check
 env.allowLocalModels = false;
+// Use the wasm backend for performance
+env.backends.onnx.wasm.numThreads = 1;
 
 // UI Elements
 const status = document.getElementById('status');
@@ -9,30 +11,13 @@ const textInput = document.getElementById('text-input');
 const voiceSelect = document.getElementById('voice');
 const speakButton = document.getElementById('speak-button');
 const audioContainer = document.getElementById('audio-container');
+const voiceUpload = document.getElementById('voice-upload');
 
-// State - Hardcode speaker embeddings as a workaround for potential loading issues.
-// This data was incomplete, causing a syntax error. It's now fixed.
+// State
 let synthesizer = null;
-let speaker_embeddings = {
-    "cmu_us_awb_arctic": {"speaker_embedding": [/* embeddings */]},
-    "cmu_us_bdl_arctic": {"speaker_embedding": [/* embeddings */]},
-    "cmu_us_clb_arctic": {"speaker_embedding": [/* embeddings */]},
-    "cmu_us_jmk_arctic": {"speaker_embedding": [/* embeddings */]},
-    "cmu_us_ksp_arctic": {"speaker_embedding": [/* embeddings */]},
-    "cmu_us_rms_arctic": {"speaker_embedding": [/* embeddings */]},
-    "cmu_us_slt_arctic": {"speaker_embedding": [/* embeddings */]}
-};
-
-// This is a simplified version of the embedding data to keep the file size reasonable.
-// The structure is fixed to resolve the syntax error.
-Object.keys(speaker_embeddings).forEach(key => {
-    const arr = new Array(512).fill(0.0);
-    if (key === "cmu_us_slt_arctic") arr[1] = -0.5; // Female 1
-    if (key === "cmu_us_clb_arctic") arr[1] = -0.4; // Female 2
-    if (key === "cmu_us_bdl_arctic") arr[1] = 0.4; // Male 1
-    if (key === "cmu_us_rms_arctic") arr[1] = 0.5; // Male 2
-    speaker_embeddings[key].speaker_embedding = arr;
-});
+let speaker_embeddings = null;
+let embeddingExtractor = null;
+let customSpeakerEmbedding = null;
 
 // Helper function to convert raw PCM audio data to a WAV file format
 function pcmToWav(pcm, sampleRate) {
@@ -98,18 +83,31 @@ const setLoading = (isLoading) => {
     }
 };
 
-// Initialize the TTS model
+// Initialize the TTS models
 const initializeTTS = async () => {
     try {
-        setStatus('Loading model... (This may take a moment)');
+        setStatus('Loading models... (This may take a moment)');
         setLoading(true);
+
+        // Load the TTS synthesizer
         synthesizer = await pipeline('text-to-speech', 'Xenova/speecht5_tts', {
-            quantized: true, // Use quantized model for faster loading and inference
+            quantized: true,
         });
-        setStatus('Model loaded successfully.');
+
+        // Load the speaker embedding extractor
+        embeddingExtractor = await pipeline('feature-extraction', 'Xenova/speecht5_speaker-encoder', {
+            quantized: true,
+        });
+
+        // Load pre-defined speaker embeddings
+        const speaker_embeddings_url = 'https://huggingface.co/datasets/Xenova/cmu-arctic-xvectors-extracted/resolve/main/speaker_embeddings.json';
+        const response = await fetch(speaker_embeddings_url);
+        speaker_embeddings = await response.json();
+
+        setStatus('Models loaded successfully.');
         populateVoices();
     } catch (err) {
-        setStatus('Failed to load model.');
+        setStatus('Failed to load models.');
         console.error('Initialization error:', err);
     } finally {
         setLoading(false);
@@ -148,13 +146,20 @@ const handleSpeak = async () => {
     audioContainer.innerHTML = '';
 
     try {
-        const speakerId = voiceSelect.value;
-        const speakerEmbeddingArray = speaker_embeddings[speakerId].speaker_embedding;
-        // The library expects a Float32Array or a Tensor, not a standard array.
-        const selectedSpeakerEmbedding = new Float32Array(speakerEmbeddingArray);
+        let speakerEmbedding;
+
+        if (customSpeakerEmbedding) {
+             // Use the custom uploaded voice
+            speakerEmbedding = customSpeakerEmbedding;
+            setStatus('Synthesizing with custom voice...');
+        } else {
+            // Use the selected voice from the dropdown
+            const speakerId = voiceSelect.value;
+            speakerEmbedding = speaker_embeddings[speakerId];
+        }
 
         const out = await synthesizer(textInput.value, {
-            speaker_embeddings: selectedSpeakerEmbedding,
+            speaker_embeddings: speakerEmbedding,
         });
 
         // Convert the raw PCM audio to a WAV file
@@ -176,8 +181,52 @@ const handleSpeak = async () => {
     }
 };
 
+// Function to handle uploaded voice file
+const handleVoiceUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) {
+        customSpeakerEmbedding = null;
+        setStatus('Custom voice cleared.');
+        return;
+    }
+
+    try {
+        setLoading(true);
+        setStatus('Processing custom voice...');
+
+        // The model expects audio with a sampling rate of 16000
+        const audio = await RawAudio.fromBlob(file, { target_sr: 16000 });
+
+        // Extract speaker embeddings
+        const embeddings = await embeddingExtractor(audio.data, {
+            sampling_rate: audio.sampling_rate
+        });
+
+        customSpeakerEmbedding = embeddings.data;
+        
+        setStatus('Custom voice loaded successfully. Press "Speak" to use it.');
+        // Deselect any option in the dropdown to indicate custom voice is active
+        voiceSelect.value = ''; 
+    } catch (err) {
+        setStatus('Failed to process custom voice.');
+        console.error('Voice processing error:', err);
+        customSpeakerEmbedding = null;
+    } finally {
+        setLoading(false);
+    }
+};
+
 // Event Listeners
 speakButton.addEventListener('click', handleSpeak);
+voiceUpload.addEventListener('change', handleVoiceUpload);
+voiceSelect.addEventListener('change', () => {
+    // When a preset voice is selected, clear the custom one
+    if (voiceUpload.value) {
+        voiceUpload.value = ''; // Reset file input
+    }
+    customSpeakerEmbedding = null;
+    setStatus('Switched to preset voice.');
+});
 
 // Start the initialization process when the script loads
 initializeTTS();

@@ -23,6 +23,11 @@
                     <label for="voice">Voice:</label>
                     <select id="voice"></select>
                 </div>
+                <div class="voice-uploader">
+                    <label for="voice-upload">Or upload a voice sample (.wav):</label>
+                    <input type="file" id="voice-upload" accept="audio/wav,audio/wave">
+                    <p class="upload-note">For best results, use a short (~5-10s), clear audio clip with minimal background noise.</p>
+                </div>
             </div>
             <textarea id="text-input" placeholder="Enter text to synthesize...">What do we say to the god of death? Not today!</textarea>
             <button id="speak-button">

@@ -126,7 +126,7 @@ const initializeTTS = async () => {
         });
 
         // Load the speaker embedding extractor
-        embeddingExtractor = await pipeline('audio-classification', 'Univeral-NER/speaker-verification-M-CTC', {
+        embeddingExtractor = await pipeline('feature-extraction', 'Universal-NER/speaker-verification-M-CTC', {
             quantized: true,
         });
 
@@ -233,9 +233,8 @@ const handleVoiceUpload = async (event) => {
             sampling_rate: audio.sampling_rate,
         });
 
-        // The model returns a list of embeddings, we take the first one
-        // and its 'embedding' property which is the Float32Array
-        customSpeakerEmbedding = embeddings[0].embedding;
+        // The feature-extraction pipeline returns the embedding tensor directly.
+        customSpeakerEmbedding = embeddings.data;
         
         setStatus('Custom voice loaded successfully. Press "Speak" to use it.');
         // Deselect any option in the dropdown to indicate custom voice is active

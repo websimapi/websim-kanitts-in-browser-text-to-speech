@@ -1,4 +1,4 @@
-import { pipeline, env, RawAudio } from '@xenova/transformers';
+import { pipeline, env } from '@xenova/transformers';
 
 // Since we will download the model from the Hugging Face Hub, we can skip the local model check
 env.allowLocalModels = false;
@@ -18,6 +18,37 @@ let synthesizer = null;
 let speaker_embeddings = null;
 let embeddingExtractor = null;
 let customSpeakerEmbedding = null;
+
+// Helper function to decode and resample audio using Web Audio API
+async function decodeAndResampleAudio(file, targetSr) {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const arrayBuffer = await file.arrayBuffer();
+
+    // Use a promise to handle the callback-based decodeAudioData
+    const decodedAudio = await new Promise((resolve, reject) => {
+        audioContext.decodeAudioData(arrayBuffer, resolve, reject);
+    });
+
+    const originalSr = decodedAudio.sampleRate;
+
+    if (originalSr === targetSr) {
+        // No resampling needed, return the first channel data
+        return { data: decodedAudio.getChannelData(0), sampling_rate: originalSr };
+    }
+
+    // Resample using OfflineAudioContext
+    const duration = decodedAudio.duration;
+    // The speaker encoder expects single-channel audio
+    const offlineContext = new OfflineAudioContext(1, duration * targetSr, targetSr);
+    const bufferSource = offlineContext.createBufferSource();
+    bufferSource.buffer = decodedAudio;
+    bufferSource.connect(offlineContext.destination);
+    bufferSource.start();
+
+    const resampledAudio = await offlineContext.startRendering();
+    // Return the first channel data
+    return { data: resampledAudio.getChannelData(0), sampling_rate: targetSr };
+}
 
 // Helper function to convert raw PCM audio data to a WAV file format
 function pcmToWav(pcm, sampleRate) {
@@ -195,7 +226,7 @@ const handleVoiceUpload = async (event) => {
         setStatus('Processing custom voice...');
 
         // The model expects audio with a sampling rate of 16000
-        const audio = await RawAudio.fromBlob(file, { target_sr: 16000 });
+        const audio = await decodeAndResampleAudio(file, 16000);
 
         // Extract speaker embeddings
         const embeddings = await embeddingExtractor(audio.data, {
